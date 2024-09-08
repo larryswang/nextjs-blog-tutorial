@@ -20,15 +20,20 @@ List object given a directory
 
 ### Non-Functional Requirements
 In the world of object storage, durability is the #1 requirement. AWS S3 [claims](https://docs.aws.amazon.com/AmazonS3/latest/userguide/DataDurability.html) to have 99.999999999% durability, which means they will never lose the file stored inside it. Also it is designed to have 99.99% availability. This is roughly 3k seconds down time per year, calculated by
+
 ```
 0.01 % * 24 * 365 * 3600 = 3153.6
 ```
+
 A rough estimation is that S3 has 1m DAU. Each user makes 1000 read requests and 100 write requests on average. Which results in ~10k QPS for writing and ~1k QPS for reading, calculated by
+
 ```
 1m * 1000 / 24 / 60/ 60 = 11.574 k
 1m * 100 / 24 / 60 / 60 = 1.157 k
 ```
+
 Each write request writes 100M of data. We need to store it for an average of 10 years. This is equivalent to
+
 ```
 100MB * 1m * 100 * 365 * 10 = 36500 PB
 ```
