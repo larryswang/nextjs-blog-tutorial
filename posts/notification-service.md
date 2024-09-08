@@ -80,9 +80,44 @@ We can tweak the design in step 3 to accommodate this solution. We have a User S
 
 The workflow could look like:
 Some external event triggers the notification to send a message to all users
-Notification Service calls User Service to list userIds by page
-For each page, write the messages to Notification Database, and write the tasks to Message Queue, before calling the User Service to fetch another page
-If the call to User Service failed, then on retry, we will skip enqueuing the messages that are already in Notification Database.
+Notification Service sends a task to the TaskScheduler. This task is to split the work into smaller tasks since the number of users can be huge. For example, if we have 1 million users, then we could enqueue sub tasks of sending to 1k users.
+The task receiver will fetch detailed user info from UserService, and keep breaking the task into PushTaskQueue. In the example in step 2, if will enqueue 1 task per user. So the size of PushTaskQeue could be larger than TaskScheduler. We need to perform some kind of sharding.
+The PushTaskReceiver will read the message from Notification Database, and call 3rd Party push service. Why does it have to call Notification Database again since it is fanned out from it? For smaller messages, we can push those in the queue payload. However, if the message is huge, let’s say it has images in it. Storing duplicate messages in the queue payload is not optimal for storage. So we could let the PushTaskReceiver call Notification Database to fetch the information, and the queue task could be as simple as a messageId.
+
+This workflow is called a streaming pipeline. In the real world, streaming pipelines could consist of multiple stages with a bunch of queues connecting them. It is good for asynchronous processing of data that is less time sensitive. Its benefit is mainly much more scalable.
+
+## Step 5. Other Optimizations
+### Notification Database
+In the Notification Database, we store something like this:
+
+| NotificationId  | UserId                  | Message|
+| ------- | ----------------|-------------- |
+| Id1 | User1| “Hello”            |
+
+It may take a lot of resources! However, considering that once we send the notification, we don’t need to store that message any more. We could periodically delete entries from the database.
+
+If the message is huge in the above database, it’s a better idea to store only the message Id, and store the actual message in another table, so the schema becomes:
+
+| NotificationId  | UserId                  | MessageId|
+| ------- | ----------------|-------------- |
+| Id1 | User1|  MessageId1          |
+
+And the Message Table:
+
+|  MessageId | Message |
+| ------ | --- |
+| MessageId1 | “Hello”         |
+
+So that we don’t have to store duplicate messages again and again.
+
+### Cache
+Imagine the receiver keeps calling Notification Database for message info, it might cause a lot of burden on the database. One optimization is that we could use an in-memory cache on the Notification Service, so that we don’t have to query the database.
 
 ## Conclusion
-In this design, we evolved our system to millions of users, with the ability to send notifications to all users step by step. 
+In this design, we evolved our system step by step:
+Simple send a notification
+Send a notification exactly once
+Send notifications to millions of users
+Send notifications to all users at once
+
+Notification Service is mainly about consistency and scale, and it’s not that time sensitive. So, streaming pipeline might be the way to go.
